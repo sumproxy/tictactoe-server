@@ -10,10 +10,7 @@ class State
   def find_session(ws)
     unless self.sessions.empty?
       self.sessions.detect do |s|
-        s.player
-          .take(2)
-          .map{|p| p.first.socket }
-          .include? ws
+        s.current.first.socket == ws
       end
     end
   end
@@ -38,7 +35,11 @@ class Player
   end
 
   def get_move(last_move)
-    @socket.send({ "next"=> last_move }.to_json)
+    @socket.send({ "next" => last_move }.to_json)
+  end
+
+  def gameover(result)
+    @socket.send({ "gameover" => result }.to_json)
   end
 end
 
@@ -46,20 +47,48 @@ class Session
   attr :player, :current, :board, :count
 
   def initialize(players)
-    @player = players.zip(["x", "o"]).cycle
-    @board = [[" ", " ", " "], [" ", " ", " "], [" ", " ", " "]]
+    @player = players.zip([:X, :O]).cycle
+    common_setup
+  end
+
+  def reset(last_winner)
+    @player.next until @player.peek == last_winner
+    common_setup
+  end
+
+  private def common_setup
+    @board = Array.new(3) { Array.new(3) { nil } }
     @count = 0
     @current = @player.next
     @current.first.get_move([])
   end
 
+  private def gameover?(winner)
+    if (winner == nil && @count == 8)
+      @current.first.gameover("draw")
+      @player.peek.first.gameover("draw")
+      self.reset(@current)
+      return true
+    elsif [:X, :O].include? winner
+      @current.first.gameover("won")
+      @player.peek.first.gameover("lost")
+      self.reset(@current)
+      return true
+    end
+
+    false
+  end    
+
   def process_move(y, x)
     coords = [0, 1, 2]
     if coords.include?(x) && coords.include?(y)
-      if @board[y][x] == " "
+      if @board[y][x] == nil
         @board[y][x] = @current.last
         winner = self.winner(y, x)
-        self.gameover?(winner)
+        if gameover?(winner)
+          p [:gameover, "#{winner} wins"]
+          return 
+        end
         @current = @player.next
         @count += 1
         @current.first.get_move([y, x])
@@ -72,14 +101,8 @@ class Session
     end
   end
 
-  def gameover?(winner)
-    winner == " " && @count > 8
-    when "x", "o"
-    end
-  end
-
   def winner(y, x)
-    let player = board[y][x];
+    player = board[y][x];
 
     # check row
     if board[y][0] == player && board[y][1] == player && board[y][2] == player
@@ -93,7 +116,7 @@ class Session
 
     case [y, x]
     # not on a diagonal
-    when [0, 1], [1, 0], [1, 2], [2, 1] then " "
+    when [0, 1], [1, 0], [1, 2], [2, 1] then nil
     else
       # on a primary diagonal
       if y == x && board[0][0] == player && board[1][1] == player && board[2][2] == player
@@ -103,7 +126,7 @@ class Session
         player
       # everything else
       else
-        " "
+        nil
       end
     end
   end
