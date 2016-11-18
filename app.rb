@@ -20,6 +20,11 @@ class State
     delete_clients(session.player.take(2))
   end
 
+  def terminate_session(ws)
+    session = self.sessions.detect{|s| s.player.take(2).any?{|p| p.first.socket == ws } }
+    self.sessions.delete(session) if session
+  end
+
   def delete_clients(clients)
     clients.each{|c| self.clients.delete(c) }
   end
@@ -198,8 +203,8 @@ App = lambda do |env|
 
     ws.on :close do |event|
       p [:close, ws.object_id, event.code, event.reason]
-      # TODO to test the deletion of the socket from sessions
       state.clients.delete(ws)
+      state.terminate_session(ws)
       ws = nil
     end
 
