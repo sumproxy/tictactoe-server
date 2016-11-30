@@ -22,7 +22,11 @@ class State
 
   def terminate_session(ws)
     session = self.sessions.detect{|s| s.player.take(2).any?{|p| p.first.socket == ws } }
-    self.sessions.delete(session) if session
+    if session
+      p [:terminate_session, session.object_id]
+      session.close_sockets
+      self.sessions.delete(session)
+    end
   end
 
   def delete_clients(clients)
@@ -40,11 +44,11 @@ class Player
   end
 
   def get_move(last_move)
-    @socket.send({ "next" => last_move }.to_json)
+    @socket.send({ "gameover" => "false", "last_move" => last_move }.to_json)
   end
 
-  def gameover(result)
-    @socket.send({ "gameover" => result }.to_json)
+  def gameover(result, move)
+    @socket.send({ "gameover" => result, "last_move" => move }.to_json)
   end
 end
 
@@ -65,18 +69,18 @@ class Session
     @board = Array.new(3) { Array.new(3) { nil } }
     @count = 0
     @current = @player.next
-    @current.first.get_move([])
+    @current.first.get_move([-1])
   end
 
-  private def gameover?(winner)
+  private def gameover?(winner, move)
     if (winner == nil && @count == 8)
-      @current.first.gameover("draw")
-      @player.peek.first.gameover("draw")
+      @current.first.gameover("draw", move)
+      @player.peek.first.gameover("draw", move)
       self.reset(@current)
       return true
     elsif [:X, :O].include? winner
-      @current.first.gameover("won")
-      @player.peek.first.gameover("lost")
+      @current.first.gameover("won", move)
+      @player.peek.first.gameover("lost", move)
       self.reset(@current)
       return true
     end
@@ -90,7 +94,7 @@ class Session
       if @board[y][x] == nil
         @board[y][x] = @current.last
         winner = self.winner(y, x)
-        if gameover?(winner)
+        if gameover?(winner, [y, x])
           p [:gameover, "#{winner} wins"]
           return 
         end
@@ -135,6 +139,18 @@ class Session
       end
     end
   end
+
+  def close_sockets
+    p [:session_close_sockets, self.object_id]
+    sockets = self.player.take(2).map{|p| p.first.socket }
+    sockets.each do |ws|
+      if ws
+        ws.send({"gameover" => "quit", "last_move" => []}.to_json)
+        p [:closing, ws.object_id]
+        ws.close
+      end
+    end
+  end
 end
 
 def parse(msg)
@@ -156,7 +172,7 @@ App = lambda do |env|
     end
 
     ws.on :message do |event|
-      p [:message, ws.object_id]
+      p [:message, ws.object_id, event.data]
       json = parse(event.data)
 
       session = state.find_session(ws)
@@ -175,7 +191,7 @@ App = lambda do |env|
           next
         end
 
-        if state.clients.detect{|c| c.rival == json['rival'] }
+        if state.clients.detect{|c| c.rival == json['rival'] && !c.rival.empty? }
           p [:error, "rival #{json['id']} is already expected by someone"]
           ws.send({ "error" => "rival is already expected by someone" }.to_json)
           next
@@ -188,8 +204,8 @@ App = lambda do |env|
           session = Session.new([player, rival])
           state.add_session(session)
           p [:session_created, session.object_id]
-        elsif state.clients.detect{|c| c.rival.nil? }
-          rival = state.clients.detect{|c| c.rival.nil? }
+        elsif state.clients.detect{|c| c.rival.empty? }
+          rival = state.clients.detect{|c| c.rival.empty? }
           session = Session.new([rival, player])
           state.add_session(session)
           p [:session_created, session.object_id]
@@ -203,7 +219,7 @@ App = lambda do |env|
 
     ws.on :close do |event|
       p [:close, ws.object_id, event.code, event.reason]
-      state.clients.delete(ws)
+      state.clients.delete_if{|c| c.socket == ws }
       state.terminate_session(ws)
       ws = nil
     end
