@@ -60,8 +60,8 @@ class Session
     common_setup
   end
 
-  def reset(last_winner)
-    @player.next until @player.peek == last_winner
+  def reset
+    @player.next until @player.peek.last == :X
     common_setup
   end
 
@@ -76,17 +76,31 @@ class Session
     if (winner == nil && @count == 8)
       @current.first.gameover("draw", move)
       @player.peek.first.gameover("draw", move)
-      self.reset(@current)
+      if rand(2) == 1
+        exchange_player_faces
+        self.reset
+      end
       return true
     elsif [:X, :O].include? winner
       @current.first.gameover("won", move)
       @player.peek.first.gameover("lost", move)
-      self.reset(@current)
+      exchange_player_faces if winner == :O
+      self.reset
       return true
     end
 
     false
-  end    
+  end
+
+  private def exchange_player_faces
+    p1, p2 = @player.take(2)
+    p [:players, :p1, p1.first.socket.object_id, :p2, p2.first.socket.object_id]
+    if p1.last == :O
+      @player = [p1.first, p2.first].zip([:X, :O]).cycle
+    else
+      @player = [p2.first, p1.first].zip([:X, :O]).cycle
+    end
+  end
 
   def process_move(y, x)
     coords = [0, 1, 2]
