@@ -76,10 +76,8 @@ class Session
     if (winner == nil && @count == 8)
       @current.first.gameover("draw", move)
       @player.peek.first.gameover("draw", move)
-      if rand(2) == 1
-        exchange_player_faces
-        self.reset
-      end
+      exchange_player_faces if rand(2) == 1
+      self.reset
       return true
     elsif [:X, :O].include? winner
       @current.first.gameover("won", move)
